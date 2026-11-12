@@ -1,0 +1,34 @@
+// Place your key bindings in this file to override the defaults
+[
+  {
+    "key": "ctrl+shift+o",
+    "command": "workbench.view.explorer",
+    "when": "viewContainer.workbench.view.explorer.enabled",
+  },
+  {
+    "key": "ctrl+shift+e",
+    "command": "-workbench.view.explorer",
+    "when": "viewContainer.workbench.view.explorer.enabled",
+  },
+  {
+    "key": "ctrl+f11",
+    "command": "workbench.action.tasks.runTask",
+    "args": "go to sql query",
+  },
+  {
+    "key": "ctrl+left",
+    "command": "cursorWordPartLeft",
+  },
+  {
+    "key": "ctrl+right",
+    "command": "cursorWordPartRight",
+  },
+  {
+    "key": "ctrl+shift+left",
+    "command": "cursorWordPartLeftSelect",
+  },
+  {
+    "key": "ctrl+shift+right",
+    "command": "cursorWordPartRightSelect",
+  },
+]

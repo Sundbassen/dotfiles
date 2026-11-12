@@ -1,0 +1,55 @@
+@import "colors.css";
+@import "/usr/share/sway/templates/waybar/style.css";
+
+@keyframes blink-warning {
+    70% {
+        color: @wm_icon_bg;
+    }
+
+    to {
+        color: @wm_icon_bg;
+        background-color: @warning_color;
+    }
+}
+
+@keyframes blink-critical {
+    70% {
+        color: @wm_icon_bg;
+    }
+
+    to {
+        color: @wm_icon_bg;
+        background-color: @error_color;
+    }
+}
+
+window#waybar {
+    background: rgba(211,211,211,0.5);
+    color: rgb(60,60,60);
+    border-radius: 12px;
+}
+
+#custom-scratchpad,
+#custom-menu,
+#workspaces button.focused,
+#clock {
+    color: rgb(60,60,60);
+    background-color: rgba(0,0,0,0);
+}
+
+#battery.charging {
+    color: inherit;
+}
+
+#custom-gh-reviews {
+    padding-left: 8px;
+    padding-right: 8px;
+}
+
+#custom-gh-reviews.direct {
+    color: @error_color;
+}
+
+#custom-gh-reviews.error {
+    color: @warning_color;
+}

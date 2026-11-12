@@ -1,0 +1,9 @@
+[user]
+	email = magjoh8@proton.me
+	name = Sundbassen
+[url "git@github.com:"]
+	insteadOf = https://github.com/
+[rebase]
+	updateRefs = true
+[rerere]
+	enabled = true

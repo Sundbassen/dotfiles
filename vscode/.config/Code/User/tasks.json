@@ -1,0 +1,30 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "echo",
+            "type": "shell",
+            "command": "echo Hello"
+        },
+        {
+            "label": "go to sql query",
+            "type": "shell",
+            "command": "~/bin/gotosqlquery",
+            "args": [
+                "${file}",
+                "${lineNumber}",
+                "1",
+                "${workspaceFolder}"
+            ],
+            "presentation": {
+                "reveal": "never",
+                "panel": "dedicated",
+                "clear": true,
+                "close": true
+            },
+            "problemMatcher": []
+        }
+    ]
+}

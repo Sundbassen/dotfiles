@@ -1,0 +1,4 @@
+selector = rofi
+typer = wtype
+clipboarder = wl-copy
+keybindings = Alt+1:type:username:tab:password,Alt+2:type:username,Alt+3:type:password,Alt+4:type:totp,Alt+u:copy:username,Alt+p:copy:password,Alt+t:copy:totp

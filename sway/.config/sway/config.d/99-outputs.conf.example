@@ -1,0 +1,9 @@
+# Per-machine output setup. Copy to 99-outputs.conf (untracked) and adjust.
+# List outputs with: swaymsg -t get_outputs
+output eDP-1 {
+	scale 1
+}
+
+output DP-1 {
+	scale 1
+}

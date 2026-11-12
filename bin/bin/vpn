@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONF="${WG_CONF:?set WG_CONF in ~/.config/dotfiles.env}"
+
+case "${1:-help}" in
+    up)
+        sudo resolvconf -u
+        sudo wg-quick up "$CONF"
+        ;;
+    down)
+        sudo wg-quick down "$CONF"
+        sudo resolvconf -u
+        ;;
+    help|*)
+        echo "Usage: wg {up|down|help}"
+        echo ""
+        echo "  up     Update resolvconf, then bring WireGuard up"
+        echo "  down   Bring WireGuard down, then update resolvconf"
+        ;;
+esac

@@ -1,0 +1,70 @@
+#!/bin/bash
+
+FILE_PATH="$1"
+LINE_NUM="$2"
+COLUMN_NUM="$3"
+BASE_DIR="$4"
+
+notify() {
+    notify-send "$1" "$2" 2>/dev/null || echo "$1: $2" >&2
+}
+
+# Read the line from the file
+LINE_CONTENT=$(sed -n "${LINE_NUM}p" "$FILE_PATH")
+
+# Try to extract SQLC function name - look for patterns like .q.FunctionName( or q.FunctionName( or queries.FunctionName(
+# First try to find the function call pattern around the cursor position
+FUNCTION_NAME=$(echo "$LINE_CONTENT" | grep -oE '\.q\.([A-Z][a-zA-Z0-9_]+)\(' | head -1 | sed 's/\.q\.\(.*\)(/\1/')
+
+if [ -z "$FUNCTION_NAME" ]; then
+    # Try standalone q.FunctionName pattern (e.g., "q.ListRoles(")
+    FUNCTION_NAME=$(echo "$LINE_CONTENT" | grep -oE '(^|[^.])q\.([A-Z][a-zA-Z0-9_]+)\(' | head -1 | sed 's/.*q\.\(.*\)(/\1/')
+fi
+
+if [ -z "$FUNCTION_NAME" ]; then
+    # Try queries.FunctionName pattern
+    FUNCTION_NAME=$(echo "$LINE_CONTENT" | grep -oE 'queries\.([A-Z][a-zA-Z0-9_]+)\(' | head -1 | sed 's/queries\.\(.*\)(/\1/')
+fi
+
+if [ -z "$FUNCTION_NAME" ]; then
+    # Fallback: extract word at cursor position
+    FUNCTION_NAME=$(echo "$LINE_CONTENT" | \
+        awk -v col="$COLUMN_NUM" '{
+            for(i=col; i>0; i--) {
+                if(substr($0,i,1) ~ /[^a-zA-Z0-9_]/) {
+                    start=i+1; break
+                }
+            }
+            if(i==0) start=1
+            
+            for(i=col; i<=length($0); i++) {
+                if(substr($0,i,1) ~ /[^a-zA-Z0-9_]/) {
+                    end=i-1; break
+                }
+            }
+            if(i>length($0)) end=length($0)
+            
+            print substr($0, start, end-start+1)
+        }')
+fi
+
+if [ -z "$FUNCTION_NAME" ]; then
+    notify "sqlc" "Could not extract function name"
+    exit 1
+fi
+
+# Search for the SQL query
+RESULT=$(grep -rn --include="*.sql" "name: $FUNCTION_NAME" "$BASE_DIR" | head -1)
+
+if [ -z "$RESULT" ]; then
+    notify "sqlc" "Query not found: $FUNCTION_NAME"
+    exit 1
+fi
+
+# Parse file path and line number
+SQL_FILE=$(echo "$RESULT" | cut -d: -f1)
+SQL_LINE=$(echo "$RESULT" | cut -d: -f2)
+
+# Open in VSCode at the specific line
+code --goto "$SQL_FILE:$SQL_LINE"
+

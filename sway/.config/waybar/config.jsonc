@@ -1,0 +1,42 @@
+{
+    "include": "/usr/share/sway/templates/waybar/config.jsonc",
+    "modules-right": [
+        // informational
+        "sway/language",
+        "custom/github",
+        "custom/gh-reviews",
+        "custom/clipboard",
+        "custom/zeit",
+        "cpu",
+        // "temperature",
+        // "memory",
+        "battery",
+        // connecting
+        "network",
+        "bluetooth",
+        "custom/valent",
+        // media
+        "custom/playerctl",
+        "custom/idle_inhibitor",
+        "custom/dnd",
+        "pulseaudio",
+        "backlight",
+        // system
+        "custom/theme",
+        "custom/adaptive-light",
+        "custom/sunset",
+        "custom/pacman",
+        "tray",
+        "clock"
+    ],
+    "custom/gh-reviews": {
+        "interval": 60,
+        "return-type": "json",
+        "format": " {}",
+        "hide-empty-text": true,
+        "exec": "$HOME/.config/waybar/scripts/gh-reviews",
+        "on-click": "xdg-open https://github.com/pulls/review-requested",
+        "on-click-right": "pkill -RTMIN+18 -x waybar",
+        "signal": 18
+    }
+}

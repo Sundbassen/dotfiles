@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+# wt: git worktrees around a bare repo, one directory per branch.
+#
+#   <parent>/.<repo>/     bare repo (any bare dir is detected)
+#   <parent>/main/        worktree of the default branch
+#   <parent>/<branch>/    one worktree per branch, "/" in names becomes "-"
+#   <parent>/env/         untracked files, mirrored as symlinks into every new worktree
+#   <parent>/.wt-hook     optional, sourced after a worktree is created
+#
+# On --clone / --add / --switch the last line printed is the worktree path,
+# so a shell wrapper can cd into it.
+set -euo pipefail
+
+usage() {
+    cat <<EOF
+Usage: wt <command> [args]
+
+Commands:
+  --clone <url> [dir]     Bare-clone a repo into dir (default: repo name) and add the default-branch worktree
+  --add <branch>          Create a new branch (from the current one) and a worktree for it
+  --switch <branch>       Create a worktree for an existing local or origin branch
+  --delete <branch>       Remove the worktree for a branch
+  --prune                 Remove every worktree except the default branch, then delete merged branches
+  --link                  (Re)link env/ files into the current worktree
+  --push                  Push the current branch (or pick one with fzf) to origin with -u
+
+Options:
+  -f                      Force (--push, --delete)
+  -h, --help              Show this help
+
+Per-repo setup, next to the bare repo:
+  env/                    files here are symlinked into new worktrees at the same relative path
+  .wt-hook                sourced after creation; sees WORKTREE_PATH, PARENT_DIR, SOURCE_WORKTREE, GIT_DIR
+EOF
+}
+
+COMMAND="" BRANCH="" FORCE="" CLONE_URL="" CLONE_DIR=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help) usage; exit 0 ;;
+        --clone) COMMAND=$1; CLONE_URL=${2:?--clone needs a url}; CLONE_DIR=${3:-}; shift 2; [[ -n "$CLONE_DIR" ]] && shift ;;
+        --add|--switch|--delete) COMMAND=$1; BRANCH=${2:?$1 needs a branch name}; shift 2 ;;
+        --prune|--push|--link) COMMAND=$1; shift ;;
+        -f) FORCE="--force"; shift ;;
+        *) echo "Unknown option: $1 (see -h)" >&2; exit 1 ;;
+    esac
+done
+[[ -n "$COMMAND" ]] || { usage >&2; exit 1; }
+
+is_bare() { [[ "$(git -C "$1" rev-parse --is-bare-repository 2>/dev/null)" == true ]]; }
+
+find_bare_in() {
+    local d
+    for d in "$1"/.[!.]* "$1"/*; do
+        [[ -d "$d" ]] && is_bare "$d" && { echo "$d"; return 0; }
+    done
+    return 1
+}
+
+default_branch() {
+    local ref
+    if ref="$(git -C "$GIT_DIR" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)"; then
+        echo "${ref#origin/}"
+    else
+        echo main
+    fi
+}
+
+link_env() {
+    local env_root="$PARENT_DIR/env" f rel dst
+    [[ -d "$env_root" ]] || return 0
+    while IFS= read -r -d '' f; do
+        rel="${f#"$env_root"/}"
+        dst="$WORKTREE_PATH/$rel"
+        if [[ -e "$dst" && ! -L "$dst" ]]; then
+            echo "env: $rel already exists in worktree, left alone" >&2
+            continue
+        fi
+        mkdir -p "$(dirname "$dst")"
+        ln -sfn "$(realpath --relative-to="$(dirname "$dst")" "$f")" "$dst"
+        echo "env: linked $rel"
+    done < <(find "$env_root" -type f -print0 | sort -z)
+}
+
+run_hook() {
+    [[ -f "$PARENT_DIR/.wt-hook" ]] || return 0
+    # shellcheck source=/dev/null
+    . "$PARENT_DIR/.wt-hook"
+}
+
+after_create() {
+    link_env
+    run_hook
+    echo "✓ Worktree created at $WORKTREE_PATH"
+    echo "$WORKTREE_PATH"
+}
+
+if [[ "$COMMAND" == "--clone" ]]; then
+    name="$(basename "$CLONE_URL" .git)"
+    PARENT_DIR="$(realpath -m "${CLONE_DIR:-$name}")"
+    GIT_DIR="$PARENT_DIR/.$name"
+    [[ -e "$GIT_DIR" ]] && { echo "Error: $GIT_DIR already exists" >&2; exit 1; }
+
+    mkdir -p "$PARENT_DIR/env"
+    git init --quiet --bare "$GIT_DIR"
+    git -C "$GIT_DIR" remote add origin "$CLONE_URL"
+    git -C "$GIT_DIR" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+    echo "Fetching $CLONE_URL..."
+    git -C "$GIT_DIR" fetch --quiet origin
+    git -C "$GIT_DIR" remote set-head origin --auto >/dev/null
+
+    DEFAULT="$(default_branch)"
+    WORKTREE_PATH="$PARENT_DIR/${DEFAULT//\//-}"
+    git -C "$GIT_DIR" worktree add --quiet --track -b "$DEFAULT" "$WORKTREE_PATH" "origin/$DEFAULT"
+    SOURCE_WORKTREE="$WORKTREE_PATH"
+    after_create
+    exit 0
+fi
+
+# Locate the bare repo: from inside a worktree, or from the parent directory.
+if common="$(git rev-parse --git-common-dir 2>/dev/null)"; then
+    GIT_DIR="$(cd "$common" && pwd)"
+    if [[ "$(basename "$GIT_DIR")" == .git ]]; then
+        echo "Error: this is a normal clone, wt needs the bare layout (see wt --clone)" >&2
+        exit 1
+    fi
+elif ! GIT_DIR="$(find_bare_in "$PWD")"; then
+    echo "Error: not inside a worktree and no bare repo found in $PWD" >&2
+    exit 1
+fi
+PARENT_DIR="$(dirname "$GIT_DIR")"
+DEFAULT="$(default_branch)"
+MAIN_WORKTREE="$PARENT_DIR/${DEFAULT//\//-}"
+WORKTREE_PATH="$PARENT_DIR/${BRANCH//\//-}"
+
+if [[ -d "$MAIN_WORKTREE" ]]; then
+    SOURCE_WORKTREE="$MAIN_WORKTREE"
+else
+    SOURCE_WORKTREE="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+fi
+
+current_branch() {
+    local b
+    b="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" && [[ "$b" != HEAD ]] && echo "$b"
+}
+
+case $COMMAND in
+    --add)
+        BASE="$(current_branch || echo "$DEFAULT")"
+        echo "Creating branch '$BRANCH' from '$BASE'"
+        git -C "$GIT_DIR" worktree add --quiet "$WORKTREE_PATH" -b "$BRANCH" "$BASE"
+        after_create
+        ;;
+
+    --switch)
+        git -C "$GIT_DIR" fetch --quiet origin
+        if git -C "$GIT_DIR" show-ref --verify --quiet "refs/heads/$BRANCH"; then
+            git -C "$GIT_DIR" worktree add --quiet "$WORKTREE_PATH" "$BRANCH"
+        elif git -C "$GIT_DIR" show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
+            git -C "$GIT_DIR" worktree add --quiet --track -b "$BRANCH" "$WORKTREE_PATH" "origin/$BRANCH"
+        else
+            echo "Error: branch '$BRANCH' not found locally or on origin" >&2
+            exit 1
+        fi
+        after_create
+        ;;
+
+    --delete)
+        git -C "$GIT_DIR" worktree remove ${FORCE} "$WORKTREE_PATH"
+        echo "✓ Worktree removed: $WORKTREE_PATH"
+        ;;
+
+    --prune)
+        echo "Removing all worktrees except $MAIN_WORKTREE..."
+        while IFS= read -r path; do
+            [[ "$path" == "$MAIN_WORKTREE" || "$path" == "$GIT_DIR" ]] && continue
+            echo "  removing $(basename "$path")"
+            git -C "$GIT_DIR" worktree remove --force "$path"
+        done < <(git -C "$GIT_DIR" worktree list --porcelain | awk '/^worktree /{print substr($0, 10)}')
+        git -C "$GIT_DIR" worktree prune
+
+        echo "Deleting branches (except $DEFAULT)..."
+        while IFS= read -r b; do
+            [[ "$b" == "$DEFAULT" ]] && continue
+            if git -C "$GIT_DIR" branch -D "$b" >/dev/null 2>&1; then
+                echo "  deleted $b"
+            else
+                echo "  kept $b"
+            fi
+        done < <(git -C "$GIT_DIR" branch --format='%(refname:short)')
+        echo "✓ Prune complete"
+        ;;
+
+    --link)
+        WORKTREE_PATH="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "Error: run --link from inside a worktree" >&2; exit 1; }
+        link_env
+        ;;
+
+    --push)
+        if ! PUSH_BRANCH="$(current_branch)"; then
+            PUSH_BRANCH="$(git -C "$GIT_DIR" branch --format='%(refname:short)' | fzf --height=20% --reverse)" || true
+            [[ -n "$PUSH_BRANCH" ]] || { echo "No branch selected" >&2; exit 1; }
+        fi
+        echo "Pushing $PUSH_BRANCH"
+        git -C "$GIT_DIR" push -u ${FORCE} origin "$PUSH_BRANCH"
+        echo "✓ Pushed $PUSH_BRANCH"
+        ;;
+esac

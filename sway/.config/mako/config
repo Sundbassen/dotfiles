@@ -1,0 +1,5 @@
+[mode=do-not-disturb]
+invisible=1
+
+[category=transport]
+on-button-left=dismiss-group

@@ -1,0 +1,10 @@
+# Secrets never belong here, even in a private repo.
+*.env
+!*.env.example
+*.local
+hosts.yml
+.credentials.json
+*.pem
+*.key
+id_*
+*.conf.wg

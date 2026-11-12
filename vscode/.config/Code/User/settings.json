@@ -1,0 +1,93 @@
+{
+  "git.openRepositoryInParentFolders": "never",
+  "go.lintTool": "golangci-lint",
+  "go.lintOnSave": "package",
+  "go.formatTool": "gofumpt",
+  "gopls": {
+    "ui.semanticTokens": true,
+  },
+  "[go]": {
+    "editor.formatOnSave": true,
+  },
+  "files.associations": {
+    "*.sql": "sql",
+  },
+  "github.copilot.selectedCompletionModel": "",
+  "[html]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+  },
+  "[yaml]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": false,
+    "prettier.singleQuote": true,
+  },
+  "[xml]": {
+    "editor.defaultFormatter": "redhat.vscode-xml",
+    "editor.formatOnSave": true,
+  },
+  "workbench.editor.empty.hint": "hidden",
+  "redhat.telemetry.enabled": false,
+  "github.copilot.nextEditSuggestions.enabled": true,
+  "explorer.confirmDelete": false,
+  "chat.viewSessions.enabled": false,
+  "chat.mcp.gallery.enabled": true,
+  "workbench.preferredDarkColorTheme": "Gruvbox Dark Medium",
+  "workbench.colorTheme": "Gruvbox Dark Hard",
+  "editor.semanticTokenColorCustomizations": {
+    "[Gruvbox Dark Hard]": {
+      "rules": {
+        "keyword:go": "#5F9595",
+        "function:go": "#fbc362",
+        "method:go": "#fbc362",
+        "namespace:go": "#C4D7D3",
+        "type:go": "#e78a4e",
+        "struct:go": "#e78a4e",
+        "parameter:go": "#f6bc94",
+        "property:go": "#83a598",
+        "member:go": "#83a598",
+        "string:go": "#a0ac4f",
+      },
+    },
+  },
+  "diffEditor.ignoreTrimWhitespace": false,
+  "claudeCode.preferredLocation": "panel",
+  "diffEditor.renderSideBySide": false,
+  "claudeCode.selectedModel": "opus",
+  "security.workspace.trust.untrustedFiles": "open",
+  "workbench.secondarySideBar.defaultVisibility": "hidden",
+  "extensions.ignoreRecommendations": true,
+  "editor.multiCursorLimit": 50000,
+  "github.copilot.nextEditSuggestions.eagerness": "low",
+  "claudeCode.hideOnboarding": true,
+  "latex-workshop.latex.tools": [
+    {
+      "name": "tectonic",
+      "command": "tectonic",
+      "args": ["-X", "compile", "--synctex", "--keep-logs", "--outdir", "build", "%DOC%.tex"],
+    },
+  ],
+  "latex-workshop.latex.recipes": [
+    { "name": "tectonic", "tools": ["tectonic"] },
+  ],
+  "latex-workshop.latex.outDir": "%DIR%/build",
+  "latex-workshop.latex.autoBuild.run": "onSave",
+  "latex-workshop.view.pdf.viewer": "tab",
+  "latex-workshop.latex.autoClean.run": "never",
+}

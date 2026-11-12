@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Waybar module: open PRs waiting on my review (direct or via a team).
+set -euo pipefail
+
+query='
+query {
+  viewer { login }
+  search(query: "is:pr is:open archived:false draft:false review-requested:@me", type: ISSUE, first: 50) {
+    nodes {
+      ... on PullRequest {
+        number
+        title
+        createdAt
+        author { login }
+        repository { nameWithOwner }
+        reviewRequests(first: 20) {
+          nodes {
+            requestedReviewer {
+              ... on User { login }
+              ... on Team { name }
+            }
+          }
+        }
+      }
+    }
+  }
+}'
+
+errfile=$(mktemp)
+trap 'rm -f "$errfile"' EXIT
+
+if ! out=$(gh api graphql -f query="$query" 2>"$errfile"); then
+    jq -cn --arg err "$(tail -n1 "$errfile")" \
+        '{text: "!", class: "error", tooltip: ($err | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;"))}'
+    exit 0
+fi
+
+jq -c '
+def esc: gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;");
+.data.viewer.login as $me
+| [.data.search.nodes[]
+   | select(.number != null)
+   | (.reviewRequests.nodes | map(.requestedReviewer // {})) as $rr
+   | {
+       direct: any($rr[]; .login == $me),
+       teams: ($rr | map(.name // empty)),
+       age: ((now - (.createdAt | fromdateiso8601)) / 86400 | floor),
+       head: "<b>\(.repository.nameWithOwner)#\(.number)</b> \(.title | esc) — \(.author.login // "ghost" | esc)"
+     }]
+| sort_by((.direct | not), -.age)
+| {
+    text: (if length == 0 then "" else length | tostring end),
+    class: (if any(.[]; .direct) then "direct" else "team" end),
+    tooltip: (map("\(.head), \(.age)d · via \(
+        if .direct then "you"
+        elif (.teams | length) == 0 then "team"
+        else .teams | join(", ") | esc end)") | join("\n"))
+  }
+' <<<"$out"
