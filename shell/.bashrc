@@ -119,8 +119,10 @@ alias cc="wl-copy"
 [ -f /usr/share/fzf/key-bindings.bash ] && source /usr/share/fzf/key-bindings.bash
 [ -f /usr/share/fzf/completion.bash ] && source /usr/share/fzf/completion.bash
 export GOPATH=$HOME/go
-export GOROOT=/usr/local/go
-export PATH=$PATH:$GOROOT/bin:$GOPATH/bin:/usr/local/go/bin:$HOME/go/bin
+# Go from the go.dev tarball in /usr/local/go, first so a distro go can't
+# shadow it. No GOROOT: go derives it from its own location, and a stale
+# GOROOT pointing at another install breaks every build.
+export PATH=/usr/local/go/bin:$PATH:$GOPATH/bin
 alias gob='go build'
 alias gs='git status'
 alias dcup='docker compose up --detach'
@@ -155,7 +157,6 @@ export GDK_SCALE=1
 export GDK_DPI_SCALE=1
 export QT_SCALE_FACTOR=1
 export QT_AUTO_SCREEN_SCALE_FACTOR=0
-export PATH=$PATH:/usr/local/go/bin
 export PATH=$PATH:$HOME/.local/bin
 
 # fnm
