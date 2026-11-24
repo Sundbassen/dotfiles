@@ -9,6 +9,9 @@
 #
 # On --clone / --add / --switch the last line printed is the worktree path,
 # so a shell wrapper can cd into it.
+#
+# Stacks are delegated to the gh-stack extension (gh extension install github/gh-stack),
+# which keeps its metadata in <bare repo>/gh-stack, shared by all worktrees.
 set -euo pipefail
 
 usage() {
@@ -17,12 +20,16 @@ Usage: wt <command> [args]
 
 Commands:
   --clone <url> [dir]     Bare-clone a repo into dir (default: repo name) and add the default-branch worktree
-  --add <branch>          Create a new branch (from the current one) and a worktree for it
+  --add <branch>          Create a new branch (from the current one) and a worktree for it;
+                          from a feature branch it is also added to a gh stack
   --switch <branch>       Create a worktree for an existing local or origin branch
   --delete <branch>       Remove the worktree for a branch
   --prune                 Remove every worktree except the default branch, then delete merged branches
+                          and their local gh stack metadata
   --link                  (Re)link env/ files into the current worktree
-  --push                  Push the current branch (or pick one with fzf) to origin with -u
+  --push                  Push the current branch (or pick one with fzf) to origin with -u;
+                          a branch in a stack pushes the whole stack (force-with-lease)
+  --restack               Rebase every stack branch above the current one, then push the stack
 
 Options:
   -f                      Force (--push, --delete)
@@ -40,7 +47,7 @@ while [[ $# -gt 0 ]]; do
         -h|--help) usage; exit 0 ;;
         --clone) COMMAND=$1; CLONE_URL=${2:?--clone needs a url}; CLONE_DIR=${3:-}; shift 2; [[ -n "$CLONE_DIR" ]] && shift ;;
         --add|--switch|--delete) COMMAND=$1; BRANCH=${2:?$1 needs a branch name}; shift 2 ;;
-        --prune|--push|--link) COMMAND=$1; shift ;;
+        --prune|--push|--link|--restack) COMMAND=$1; shift ;;
         -f) FORCE="--force"; shift ;;
         *) echo "Unknown option: $1 (see -h)" >&2; exit 1 ;;
     esac
@@ -144,11 +151,102 @@ current_branch() {
     b="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" && [[ "$b" != HEAD ]] && echo "$b"
 }
 
+worktree_of() {
+    git -C "$GIT_DIR" worktree list --porcelain |
+        awk -v ref="branch refs/heads/$1" '/^worktree /{p=substr($0, 10)} $0 == ref {print p; exit}'
+}
+
+# --- gh stack ---------------------------------------------------------------
+
+# Sets STACK to `gh stack view --json` for the branch checked out in $1, or to ""
+# when that branch is not in a stack (exit 2). Anything else (gh-stack missing,
+# broken metadata) prints gh's error and stops wt.
+load_stack() {
+    local rc=0 err
+    err="$(mktemp)"
+    STACK="$(cd "$1" && gh stack view --json 2>"$err")" || rc=$?
+    if (( rc != 0 && rc != 2 )); then
+        cat "$err" >&2
+        rm -f "$err"
+        echo "Error: 'gh stack view' failed in $1" >&2
+        exit "$rc"
+    fi
+    rm -f "$err"
+    (( rc == 0 )) || STACK=""
+}
+
+# Whether origin is on a host gh is logged in to (github.com or GHES). gh stack
+# push/sync/submit need the GitHub API; elsewhere wt pushes the stack with git.
+on_github() {
+    if [[ -z "${ON_GITHUB:-}" ]]; then
+        local host
+        host="$(git -C "$GIT_DIR" remote get-url origin 2>/dev/null || true)"
+        host="${host#*://}"    # https://host/o/r, ssh://git@host:22/o/r
+        host="${host#*@}"      # git@host:o/r
+        host="${host%%[:/]*}"
+        ON_GITHUB=no
+        [[ -n "$host" ]] && gh auth status --hostname "$host" >/dev/null 2>&1 && ON_GITHUB=yes
+    fi
+    [[ "$ON_GITHUB" == yes ]]
+}
+
+# gh stack push does not set upstreams; keep wt's -u behaviour.
+set_upstreams() {
+    local b
+    for b in "$@"; do
+        git -C "$GIT_DIR" config "branch.$b.remote" >/dev/null && continue
+        git -C "$GIT_DIR" branch --quiet --set-upstream-to="origin/$b" "$b" ||
+            echo "⚠ could not set upstream for $b" >&2
+    done
+}
+
+# Run after `worktree add` for a branch created from a non-default BASE, with
+# STACK loaded for BASE. Failures only warn: the worktree already exists.
+stack_add() {
+    if ! stack_has "$BASE"; then
+        echo "Starting stack: $DEFAULT ← $BASE ← $BRANCH"
+        gh stack init --base "$DEFAULT" "$BASE" "$BRANCH" || echo "⚠ gh stack init failed, '$BRANCH' is not in a stack"
+    elif [[ "$(jq -r '.branches[-1].name' <<<"$STACK")" == "$BASE" ]]; then
+        echo "Adding '$BRANCH' to the top of the stack"
+        gh stack add "$BRANCH" || echo "⚠ gh stack add failed, '$BRANCH' is not in the stack"
+    else
+        echo "'$BASE' is in the middle of a stack, so '$BRANCH' is left out of it:"
+        gh stack add "$BRANCH" || true
+    fi
+}
+
+# Push every active branch of the stack loaded in STACK, run from worktree $1.
+stack_push() {
+    local branches=()
+    mapfile -t branches < <(jq -r '.branches[] | select((.isMerged or .isQueued) | not) | .name' <<<"$STACK")
+    (( ${#branches[@]} )) || { echo "Nothing to push, every branch in the stack is merged or queued"; return 0; }
+    [[ -n "$FORCE" ]] && echo "note: -f ignored, a stack is pushed with --force-with-lease" >&2
+    echo "Pushing stack: ${branches[*]}"
+    if on_github; then
+        (cd "$1" && gh stack push)
+    else
+        git -C "$GIT_DIR" push --atomic --force-with-lease origin "${branches[@]}"
+    fi
+    set_upstreams "${branches[@]}"
+    echo "✓ Pushed stack"
+}
+
+# STACK holds a stack that contains branch $1 (and $1 is not just its trunk).
+stack_has() {
+    [[ -n "$STACK" ]] && jq -e --arg b "$1" 'any(.branches[]; .name == $b)' <<<"$STACK" >/dev/null
+}
+
 case $COMMAND in
     --add)
         BASE="$(current_branch || echo "$DEFAULT")"
+        # Look up the stack before creating anything, so a missing gh-stack fails cleanly.
+        [[ "$BASE" == "$DEFAULT" ]] || load_stack "$PWD"
         echo "Creating branch '$BRANCH' from '$BASE'"
         git -C "$GIT_DIR" worktree add --quiet "$WORKTREE_PATH" -b "$BRANCH" "$BASE"
+        # The branch must exist before gh stack adopts it: `gh stack add` on a new
+        # name would create it by switching this worktree. Keep stdout's last line
+        # for the worktree path.
+        [[ "$BASE" == "$DEFAULT" ]] || stack_add >&2
         after_create
         ;;
 
@@ -172,6 +270,12 @@ case $COMMAND in
 
     --prune)
         echo "Removing all worktrees except $MAIN_WORKTREE..."
+        # Every non-default branch is deleted below, so drop their local stack
+        # tracking first (needs the branch checked out; exit 2 = not in a stack).
+        while IFS= read -r path; do
+            [[ "$path" == "$MAIN_WORKTREE" || "$path" == "$GIT_DIR" ]] && continue
+            (cd "$path" && gh stack unstack --local) >/dev/null 2>&1 && echo "  unstacked $(basename "$path")"
+        done < <(git -C "$GIT_DIR" worktree list --porcelain | awk '/^worktree /{print substr($0, 10)}')
         while IFS= read -r path; do
             [[ "$path" == "$MAIN_WORKTREE" || "$path" == "$GIT_DIR" ]] && continue
             echo "  removing $(basename "$path")"
@@ -201,8 +305,33 @@ case $COMMAND in
             PUSH_BRANCH="$(git -C "$GIT_DIR" branch --format='%(refname:short)' | fzf --height=20% --reverse)" || true
             [[ -n "$PUSH_BRANCH" ]] || { echo "No branch selected" >&2; exit 1; }
         fi
-        echo "Pushing $PUSH_BRANCH"
-        git -C "$GIT_DIR" push -u ${FORCE} origin "$PUSH_BRANCH"
-        echo "✓ Pushed $PUSH_BRANCH"
+        # gh stack works on the checked-out branch, so look the stack up in its worktree.
+        STACK="" PUSH_WORKTREE="$(worktree_of "$PUSH_BRANCH")"
+        if [[ "$PUSH_BRANCH" != "$DEFAULT" && -n "$PUSH_WORKTREE" ]]; then
+            load_stack "$PUSH_WORKTREE"
+        fi
+        if stack_has "$PUSH_BRANCH"; then
+            stack_push "$PUSH_WORKTREE"
+        else
+            echo "Pushing $PUSH_BRANCH"
+            git -C "$GIT_DIR" push -u ${FORCE} origin "$PUSH_BRANCH"
+            echo "✓ Pushed $PUSH_BRANCH"
+        fi
+        ;;
+
+    --restack)
+        WORKTREE_PATH="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "Error: run --restack from inside a worktree" >&2; exit 1; }
+        RESTACK_BRANCH="$(current_branch)" || { echo "Error: no branch checked out" >&2; exit 1; }
+        load_stack "$WORKTREE_PATH"
+        stack_has "$RESTACK_BRANCH" || { echo "Error: '$RESTACK_BRANCH' is not in a gh stack" >&2; exit 1; }
+        rc=0
+        (cd "$WORKTREE_PATH" && gh stack rebase --upstack --no-trunk) || rc=$?
+        if (( rc == 3 )); then
+            echo "Resolve the conflict in the worktree gh named, run 'gh stack rebase --continue', then 'wt --push'" >&2
+            exit 3
+        fi
+        (( rc == 0 )) || exit "$rc"
+        load_stack "$WORKTREE_PATH"   # merged/queued state may have changed
+        stack_push "$WORKTREE_PATH"
         ;;
 esac
