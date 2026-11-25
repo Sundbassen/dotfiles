@@ -25,6 +25,10 @@ if command -v code >/dev/null; then
   for ext in "${VSCODE_EXTENSIONS[@]}"; do code --install-extension "$ext" --force >/dev/null; done
 fi
 
+if gh auth status >/dev/null 2>&1 && ! gh extension list | grep -q 'github/gh-stack'; then
+  gh extension install github/gh-stack
+fi
+
 mkdir -p "$HOME/Screenshots" "$HOME/.config/zsh/config.d"
 
 outputs="$HOME/.config/sway/config.d/99-outputs.conf"
@@ -41,7 +45,7 @@ cat <<EOF
 Done. Remaining manual steps:
   1. Edit $env_file and $outputs
   2. Place ~/.ssh/id_ed25519 and the WireGuard conf; optionally ~/.bashrc.local
-  3. gh auth login; rbw register (personal API key, needed on bitwarden.com), then rbw login
+  3. gh auth login; gh extension install github/gh-stack (wt stacks); rbw register (personal API key, needed on bitwarden.com), then rbw login
   4. Not packaged: fnm (https://github.com/Schniz/fnm), volta (https://volta.sh)
   5. Log out and back in so .profile and environment.d take effect
 EOF
