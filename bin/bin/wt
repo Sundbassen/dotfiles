@@ -269,13 +269,11 @@ case $COMMAND in
         ;;
 
     --prune)
+        if [[ -e "$GIT_DIR/gh-stack-rebase-state" ]]; then
+            echo "Error: a gh stack rebase is in progress; finish it with 'gh stack rebase --continue' or '--abort' first" >&2
+            exit 1
+        fi
         echo "Removing all worktrees except $MAIN_WORKTREE..."
-        # Every non-default branch is deleted below, so drop their local stack
-        # tracking first (needs the branch checked out; exit 2 = not in a stack).
-        while IFS= read -r path; do
-            [[ "$path" == "$MAIN_WORKTREE" || "$path" == "$GIT_DIR" ]] && continue
-            (cd "$path" && gh stack unstack --local) >/dev/null 2>&1 && echo "  unstacked $(basename "$path")"
-        done < <(git -C "$GIT_DIR" worktree list --porcelain | awk '/^worktree /{print substr($0, 10)}')
         while IFS= read -r path; do
             [[ "$path" == "$MAIN_WORKTREE" || "$path" == "$GIT_DIR" ]] && continue
             echo "  removing $(basename "$path")"
@@ -284,14 +282,24 @@ case $COMMAND in
         git -C "$GIT_DIR" worktree prune
 
         echo "Deleting branches (except $DEFAULT)..."
+        kept=0
         while IFS= read -r b; do
             [[ "$b" == "$DEFAULT" ]] && continue
             if git -C "$GIT_DIR" branch -D "$b" >/dev/null 2>&1; then
                 echo "  deleted $b"
             else
                 echo "  kept $b"
+                kept=1
             fi
         done < <(git -C "$GIT_DIR" branch --format='%(refname:short)')
+        if [[ -e "$GIT_DIR/gh-stack" ]]; then
+            if (( kept )); then
+                echo "⚠ some branches were kept, so gh stack metadata was left alone (see 'gh stack view')" >&2
+            else
+                rm -f "$GIT_DIR/gh-stack"
+                echo "  removed gh stack metadata"
+            fi
+        fi
         echo "✓ Prune complete"
         ;;
 
